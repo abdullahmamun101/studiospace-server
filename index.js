@@ -1,10 +1,16 @@
+
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+
+const {
+  MongoClient,
+  ServerApiVersion,
+  ObjectId,
+} = require("mongodb");
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -24,20 +30,160 @@ async function run() {
   try {
     await client.connect();
     await client.db("admin").command({ ping: 1 });
+
     console.log("MongoDB connected successfully");
 
     const db = client.db("studiospace");
-    
+    const studiosCollection = db.collection("studios");
+
+    // 1. Add a new studio
+    app.post("/studios", async (req, res) => {
+      const studio = req.body;
+
+      studio.hourlyRate = Number(studio.hourlyRate);
+      studio.securityDeposit = Number(studio.securityDeposit);
+      studio.maxCapacity = Number(studio.maxCapacity);
+      studio.rating = 0;
+      studio.reviews = [];
+      studio.createdAt = new Date();
+
+      const result = await studiosCollection.insertOne(studio);
+
+      res.status(201).send(result);
+    });
+
+    // 2. Get all studios (category, search, sort, limit support)
+    app.get("/studios", async (req, res) => {
+      const { category, search, sort, limit } = req.query;
+
+      const query = {};
+
+      if (category) query.category = category;
+
+      if (search) {
+        query.title = { $regex: search, $options: "i" };
+      }
+
+      let sortOption = { createdAt: -1 };
+
+      if (sort === "rating") {
+        sortOption = { rating: -1 };
+      }
+
+      let cursor = studiosCollection.find(query).sort(sortOption);
+
+      if (limit) {
+        cursor = cursor.limit(Number(limit));
+      }
+
+      const studios = await cursor.toArray();
+
+      res.send(studios);
+    });
+
+    // 3. Get a single studio by ID
+    app.get("/studios/:id", async (req, res) => {
+      const id = req.params.id;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid studio id",
+        });
+      }
+
+      const studio = await studiosCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!studio) {
+        return res.status(404).send({
+          message: "Studio not found",
+        });
+      }
+
+      res.send(studio);
+    });
+
+    // 4. Get studios of one owner (My Listings)
+    app.get("/my-studios", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({
+          message: "Email is required",
+        });
+      }
+
+      const studios = await studiosCollection
+        .find({ ownerEmail: email })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(studios);
+    });
+
+    // 5. Update a studio
+    app.put("/studios/:id", async (req, res) => {
+      const id = req.params.id;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid studio id",
+        });
+      }
+
+      const data = req.body;
+
+      const updatedDoc = {
+        title: data.title,
+        category: data.category,
+        hourlyRate: Number(data.hourlyRate),
+        securityDeposit: Number(data.securityDeposit),
+        maxCapacity: Number(data.maxCapacity),
+        location: data.location,
+        image: data.image,
+        amenities: data.amenities,
+        overview: data.overview,
+      };
+
+      const result = await studiosCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatedDoc }
+      );
+
+      res.send(result);
+    });
+
+    // 6. Delete a studio
+    app.delete("/studios/:id", async (req, res) => {
+      const id = req.params.id;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid studio id",
+        });
+      }
+
+      const result = await studiosCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      res.send(result);
+    });
+
   } catch (error) {
     console.error("MongoDB connection failed:", error.message);
   }
 }
+
 run();
 
+// Server home route
 app.get("/", (req, res) => {
   res.send("StudioSpace server is running");
 });
 
+// Start server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
