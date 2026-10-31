@@ -36,6 +36,7 @@ async function run() {
 
     const db = client.db("studiospace");
     const studiosCollection = db.collection("studios");
+    const bookingsCollection = db.collection("bookings");
 
     // 1. Add a new studio
     app.post("/studios", async (req, res) => {
@@ -198,6 +199,72 @@ async function run() {
       }
     });
 
+    // 7. Create a booking (status always starts as Pending)
+    app.post("/bookings", async (req, res) => {
+      try {
+        const booking = req.body;
+
+        booking.status = "Pending";
+        booking.createdAt = new Date();
+
+        const result = await bookingsCollection.insertOne(booking);
+
+        res.status(201).send(result);
+      } catch (error) {
+        res.status(500).send({ message: error.message });
+      }
+    });
+
+    // 8. Get bookings of one user (My Bookings)
+    app.get("/my-bookings", async (req, res) => {
+      try {
+        const email = req.query.email;
+
+        if (!email) {
+          return res.status(400).send({
+            message: "Email is required",
+          });
+        }
+
+        const bookings = await bookingsCollection
+          .find({ userEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(bookings);
+      } catch (error) {
+        res.status(500).send({ message: error.message });
+      }
+    });
+
+    // 9. Cancel a booking (only if Pending)
+    app.patch("/bookings/:id/cancel", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({
+            message: "Invalid booking id",
+          });
+        }
+
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id), status: "Pending" },
+          { $set: { status: "Cancelled" } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(400).send({
+            message: "Only pending bookings can be cancelled",
+          });
+        }
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: error.message });
+      }
+    });
+
     // Server home route
     app.get("/", (req, res) => {
       res.send("StudioSpace server is running");
@@ -207,11 +274,9 @@ async function run() {
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);
     });
-
   } catch (error) {
     console.error("MongoDB connection failed:", error.message);
   }
 }
 
 run();
-
