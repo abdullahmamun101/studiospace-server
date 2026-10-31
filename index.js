@@ -1,4 +1,3 @@
-
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
@@ -199,10 +198,39 @@ async function run() {
       }
     });
 
-    // 7. Create a booking (status always starts as Pending)
+    // 7. Create a booking (status starts as Pending, blocks double booking)
     app.post("/bookings", async (req, res) => {
       try {
         const booking = req.body;
+        const { studioId, date, startTime, endTime } = booking;
+
+        if (!studioId || !date || !startTime || !endTime) {
+          return res.status(400).send({
+            message: "studioId, date, startTime and endTime are required",
+          });
+        }
+
+        if (startTime >= endTime) {
+          return res.status(400).send({
+            message: "End time must be after start time",
+          });
+        }
+
+        // Overlap check against Confirmed bookings of the same studio and date
+        const conflict = await bookingsCollection.findOne({
+          studioId: studioId,
+          date: date,
+          status: "Confirmed",
+          startTime: { $lt: endTime },
+          endTime: { $gt: startTime },
+        });
+
+        if (conflict) {
+          return res.status(409).send({
+            message:
+              "This time slot is already booked. Please choose another time.",
+          });
+        }
 
         booking.status = "Pending";
         booking.createdAt = new Date();
