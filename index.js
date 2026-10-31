@@ -3,6 +3,8 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
 const {
@@ -16,6 +18,24 @@ const port = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser());
+
+// JWT verify middleware (reads HTTPOnly cookie)
+const verifyToken = (req, res, next) => {
+  const token = req.cookies?.token;
+
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "Unauthorized access" });
+    }
+    req.user = decoded;
+    next();
+  });
+};
 
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
@@ -37,8 +57,8 @@ async function run() {
     const studiosCollection = db.collection("studios");
     const bookingsCollection = db.collection("bookings");
 
-    // 1. Add a new studio
-    app.post("/studios", async (req, res) => {
+    // 1. Add a new studio (protected)
+    app.post("/studios", verifyToken, async (req, res) => {
       try {
         const studio = req.body;
 
@@ -177,8 +197,8 @@ async function run() {
       }
     });
 
-    // 6. Delete a studio
-    app.delete("/studios/:id", async (req, res) => {
+    // 6. Delete a studio (protected)
+    app.delete("/studios/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
 
@@ -198,8 +218,8 @@ async function run() {
       }
     });
 
-    // 7. Create a booking (status starts as Pending, blocks double booking)
-    app.post("/bookings", async (req, res) => {
+    // 7. Create a booking (protected, status starts as Pending, blocks double booking)
+    app.post("/bookings", verifyToken, async (req, res) => {
       try {
         const booking = req.body;
         const { studioId, date, startTime, endTime } = booking;
